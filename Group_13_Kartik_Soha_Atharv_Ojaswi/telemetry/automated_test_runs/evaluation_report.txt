@@ -1,0 +1,9 @@
+Automated biometric evaluation, 15 scripted test runs (R01-R15), seed 20261019
+Window 3.0 s, hop 0.5 s, enrol 60 s, threshold 0.25, lockout after 4 windows
+Genuine windows: 1275, impostor windows: 525
+Window-level EER: 0.39% at threshold 0.418
+At operating threshold 0.25: FAR 13.33%, FRR 0.00% (single window, before smoothing)
+Handovers detected and locked out: 15/15
+False lockouts during genuine use: 0/15
+Lockout latency after handover: 2.97 s mean, 0.18 s SD, max 3.40 s
+Generated 2026-10-19 19:28 by BiometricEvaluationRunner.

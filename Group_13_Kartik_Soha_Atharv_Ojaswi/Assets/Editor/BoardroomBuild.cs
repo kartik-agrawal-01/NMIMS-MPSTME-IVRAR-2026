@@ -1,0 +1,39 @@
+using System.IO;
+using System.Linq;
+using UnityEditor;
+using UnityEditor.Build.Reporting;
+using UnityEngine;
+
+namespace BoardroomXR.EditorTools
+{
+    /// <summary>One-click Quest build to C:\Users\HP\BoardroomXR_v3.apk (keeps v1 and v2 untouched).</summary>
+    public static class BoardroomBuild
+    {
+        [MenuItem("BoardroomXR/Build Quest APK (v3)")]
+        public static void BuildApk()
+        {
+            string home = System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile);
+            string path = Path.Combine(home, "BoardroomXR_v3.apk");
+
+            long freeGb = new DriveInfo(Path.GetPathRoot(home)).AvailableFreeSpace / (1024L * 1024 * 1024);
+            Debug.Log($"[Build] Free space on {Path.GetPathRoot(home)}: {freeGb} GB");
+
+            var scenes = EditorBuildSettings.scenes.Where(s => s.enabled).Select(s => s.path).ToArray();
+            var options = new BuildPlayerOptions
+            {
+                scenes = scenes,
+                locationPathName = path,
+                target = BuildTarget.Android,
+                targetGroup = BuildTargetGroup.Android,
+                options = BuildOptions.None
+            };
+
+            BuildReport report = BuildPipeline.BuildPlayer(options);
+            var s = report.summary;
+            string msg = $"Result: {s.result}\nOutput: {path}\nSize: {s.totalSize / (1024f * 1024f):F1} MB\n" +
+                         $"Errors: {s.totalErrors}, warnings: {s.totalWarnings}\nTime: {s.totalTime}\nScenes: {string.Join(", ", scenes)}";
+            Debug.Log("[Build] " + msg);
+            EditorUtility.DisplayDialog("Quest APK build", msg, "OK");
+        }
+    }
+}

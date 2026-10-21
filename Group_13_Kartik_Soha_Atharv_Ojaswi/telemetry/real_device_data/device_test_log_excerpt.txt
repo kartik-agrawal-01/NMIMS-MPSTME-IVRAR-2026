@@ -1,0 +1,54 @@
+BoardroomXR - on-device test log excerpt (Meta Quest, 30 Sep 2026)
+Source: launch_log.txt (adb logcat), lines quoted verbatim by Tools/extract_device_events.py.
+Lines marked [derived] were added by the extractor, not printed by the app.
+
+09-30 16:33:48.487  (log line 635)  Host-local gated content HIDDEN on 1 object(s) (gate awake; networking not started yet).
+09-30 16:33:48.738  (log line 653)  Registered avatar  (client 0). Verified=False.
+09-30 16:33:48.738  (log line 667)  BoardroomAccessGate active (server). Gating 1 content object(s). Registered avatars: 1.
+09-30 16:33:48.740  (log line 680)  Registered avatar EMP-87a150a0 (client 0). Verified=False.
+09-30 16:33:48.740  (log line 694)  AvatarIdentity spawned. netId=3 owner=0 isServer=True isOwner=True claimedId=EMP-87a150a0
+09-30 16:33:48.741  (log line 720)  SpoofDetector active (server) for EMP-87a150a0. head=Main Camera threshold=2.5sd strikesToRevoke=3
+09-30 16:33:48.748  (log line 733)  [server] Credentials provisioned: PIN hash stored (salted SHA-256), TOTP 6 digits / 30s, gesture threshold 0.75.
+09-30 16:33:48.748  (log line 741)  [NetworkHostBootstrap] StartHost() -> True.
+09-30 16:33:48.749  (log line 749)  MFA session started.
+09-30 16:34:35.556  (log line 822)  [server] PIN check for EMP-87a150a0: accepted.
+09-30 16:34:35.558  (log line 835)  Factor 1 (PIN) passed.
+09-30 16:34:35.562  (log line 848)  Loaded enrolled gesture template for EMP-87a150a0 (31 points).
+09-30 16:34:38.208  (log line 869)  Factor 2 (Gesture) failed locally: score=0.689, required>=0.750.
+09-30 16:34:39.580  (log line 884)  Factor 2 (Gesture) failed locally: score=0.525, required>=0.750.
+09-30 16:34:40.817  (log line 899)  Factor 2 (Gesture) failed locally: score=0.624, required>=0.750.
+09-30 16:34:46.085  (log line 914)  Factor 2 (Gesture) failed locally: score=0.608, required>=0.750.
+09-30 16:34:47.758  (log line 929)  Factor 2 (Gesture) failed locally: score=0.656, required>=0.750.
+09-30 16:34:49.365  (log line 944)  Factor 2 (Gesture) failed locally: score=0.622, required>=0.750.
+09-30 16:34:52.850  (log line 954)  Gesture stroke discarded: 0.20s, 2 points (need >=0.25s and >=12 points). Draw again.
+09-30 16:34:53.727  (log line 973)  Gesture stroke discarded: 0.21s, 1 points (need >=0.25s and >=12 points). Draw again.
+09-30 16:34:54.490  (log line 992)  Gesture stroke discarded: 0.15s, 1 points (need >=0.25s and >=12 points). Draw again.
+09-30 16:34:55.336  (log line 1001)  Gesture stroke discarded: 0.25s, 4 points (need >=0.25s and >=12 points). Draw again.
+09-30 16:34:56.086  (log line 1020)  Gesture stroke discarded: 0.18s, 2 points (need >=0.25s and >=12 points). Draw again.
+09-30 16:34:57.268  (log line 1039)  Gesture stroke discarded: 0.17s, 2 points (need >=0.25s and >=12 points). Draw again.
+09-30 16:34:57.796  (log line 1058)  Gesture stroke discarded: 0.17s, 2 points (need >=0.25s and >=12 points). Draw again.
+09-30 16:34:58.463  (log line 1067)  Gesture stroke discarded: 0.16s, 5 points (need >=0.25s and >=12 points). Draw again.
+09-30 16:34:58.880  (log line 1086)  Gesture stroke discarded: 0.17s, 3 points (need >=0.25s and >=12 points). Draw again.
+09-30 16:34:59.058  (log line 1095)  Gesture stroke discarded: 0.11s, 3 points (need >=0.25s and >=12 points). Draw again.
+09-30 16:34:59.197  (log line 1114)  Gesture stroke discarded: 0.11s, 3 points (need >=0.25s and >=12 points). Draw again.
+09-30 16:34:59.365  (log line 1133)  Gesture stroke discarded: 0.10s, 3 points (need >=0.25s and >=12 points). Draw again.
+09-30 16:34:59.516  (log line 1142)  Gesture stroke discarded: 0.08s, 3 points (need >=0.25s and >=12 points). Draw again.
+09-30 16:34:59.697  (log line 1161)  Gesture stroke discarded: 0.10s, 3 points (need >=0.25s and >=12 points). Draw again.
+09-30 16:35:01.252  (log line 1205)  Factor 2 (Gesture) failed locally: score=0.305, required>=0.750.
+09-30 16:35:01.683  (log line 1215)  Gesture stroke discarded: 0.23s, 3 points (need >=0.25s and >=12 points). Draw again.
+09-30 16:35:04.237  (log line 1224)  Gesture stroke discarded: 0.28s, 9 points (need >=0.25s and >=12 points). Draw again.
+09-30 16:35:04.599  (log line 1233)  Gesture stroke discarded: 0.21s, 15 points (need >=0.25s and >=12 points). Draw again.
+09-30 16:35:18.844  (log line 1338)  [derived] last gesture input: Gesture stroke discarded: 0.21s, 15 points (need >=0.25s and >=12 points). Draw again.
+09-30 16:35:18.844  (log line 1338)  [derived] absence of any OTP verification line
+09-30 16:35:18.844  (log line 1338)  MFA session TIMED OUT after 90s at stage TimedOut.
+09-30 16:35:42.279  (log line 1382)  MFA session started.
+09-30 16:35:57.344  (log line 1388)  [server] PIN check for EMP-87a150a0: accepted.
+09-30 16:35:57.345  (log line 1401)  Factor 1 (PIN) passed.
+09-30 16:35:57.350  (log line 1414)  Loaded enrolled gesture template for EMP-87a150a0 (31 points).
+09-30 16:36:06.322  (log line 1445)  Factor 2 (Gesture) failed locally: score=0.354, required>=0.750.
+09-30 16:36:21.795  (log line 1496)  Factor 2 (Gesture) failed locally: score=0.263, required>=0.750.
+09-30 16:36:22.362  (log line 1506)  Gesture stroke discarded: 0.14s, 4 points (need >=0.25s and >=12 points). Draw again.
+09-30 16:36:48.609  (log line 1515)  Gesture stroke discarded: 0.17s, 6 points (need >=0.25s and >=12 points). Draw again.
+09-30 16:37:12.293  (log line 1558)  [derived] last gesture input: Gesture stroke discarded: 0.17s, 6 points (need >=0.25s and >=12 points). Draw again.
+09-30 16:37:12.293  (log line 1558)  [derived] absence of any OTP verification line
+09-30 16:37:12.293  (log line 1558)  MFA session TIMED OUT after 90s at stage TimedOut.
