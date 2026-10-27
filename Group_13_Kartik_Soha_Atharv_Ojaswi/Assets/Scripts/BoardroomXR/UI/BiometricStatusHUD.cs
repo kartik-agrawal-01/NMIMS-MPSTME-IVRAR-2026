@@ -27,6 +27,13 @@ namespace BoardroomXR.UI
         private string _mfaMessage = "";
         private float _nextSearch;
 
+        // Enrolment progress bar, built under the same head-locked root.
+        private Transform _progressRoot, _progressFill;
+        private Material _progressTrackMat, _progressFillMat;
+
+        /// <summary>Extra line shown above everything else (mimicry attack banner).</summary>
+        public static string Banner { get; set; } = "";
+
         private void Update()
         {
             if (_root == null) { if (Camera.main == null) return; Build(Camera.main.transform); }
@@ -58,6 +65,31 @@ namespace BoardroomXR.UI
             _text.alignment = TextAlignment.Center;
             _text.richText = true;
 
+            // Enrolment progress bar, just under the text block.
+            var bar = new GameObject("EnrolProgress");
+            bar.transform.SetParent(_root, false);
+            bar.transform.localPosition = new Vector3(0f, -0.045f, 0f);
+            _progressRoot = bar.transform;
+
+            SpatialUiFactory.Quad(_progressRoot, "Track", Vector3.zero, new Vector2(0.44f, 0.018f),
+                new Color(0.12f, 0.14f, 0.18f, 0.85f), out _progressTrackMat);
+
+            var fillPivot = new GameObject("FillPivot");
+            fillPivot.transform.SetParent(_progressRoot, false);
+            fillPivot.transform.localPosition = new Vector3(-0.22f, 0f, -0.001f);
+            var fill = new GameObject("Fill");
+            fill.transform.SetParent(fillPivot.transform, false);
+            fill.transform.localPosition = new Vector3(0.5f, 0f, 0f);   // grows from the left edge
+            fill.transform.localScale = new Vector3(1f, 0.018f, 1f);
+            fill.AddComponent<MeshFilter>().sharedMesh = SpatialUiFactory.QuadMesh;
+            var fillMr = fill.AddComponent<MeshRenderer>();
+            _progressFillMat = SpatialUiFactory.UnlitMaterial(new Color(0.45f, 0.78f, 1f, 0.95f));
+            fillMr.sharedMaterial = _progressFillMat;
+            fillMr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            fillPivot.transform.localScale = new Vector3(0.001f, 1f, 1f);
+            _progressFill = fillPivot.transform;
+            _progressRoot.gameObject.SetActive(false);
+
             // Red lockout tint: a quad just in front of the eyes.
             Shader sh = Shader.Find("Sprites/Default") ?? Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Unlit/Color");
             if (sh != null)
@@ -81,6 +113,10 @@ namespace BoardroomXR.UI
             var e = auth != null ? auth.Engine : null;
             var sb = new System.Text.StringBuilder();
             bool locked = false;
+            bool enrolling = e != null && e.State == BiometricState.Enrolling;
+
+            if (!string.IsNullOrEmpty(Banner))
+                sb.Append("<color=#ff8c42><b>").Append(Banner).Append("</b></color>\n");
 
             if (_mfa != null && _mfa.CurrentStage != MFAStage.Passed)
             {
@@ -93,9 +129,11 @@ namespace BoardroomXR.UI
                 switch (e.State)
                 {
                     case BiometricState.Enrolling:
-                        sb.Append("<color=#7fc8ff>Learning how you move: ")
+                        sb.Append("<color=#7fc8ff>Enrolling: Learning how you move: ")
                           .Append(Mathf.RoundToInt(e.EnrolProgress * 100f)).Append("%</color>\n")
-                          .Append("Look around and use both controllers naturally.");
+                          .Append("Look around and use both controllers naturally.  ")
+                          .Append(Mathf.CeilToInt(Mathf.Max(0f, e.Config.enrolSeconds - e.SecondsInPhase)))
+                          .Append("s left");
                         break;
                     case BiometricState.Verified:
                         sb.Append("<color=#6fe38a>Identity verified continuously</color>  score ")
@@ -104,7 +142,12 @@ namespace BoardroomXR.UI
                     case BiometricState.Warning:
                         sb.Append("<color=#ffc04d>Movement does not match the enrolled user</color>  score ")
                           .Append(e.SmoothedScore.ToString("F2")).Append("  (")
-                          .Append(e.Violations).Append('/').Append(e.Config.violationsForLockout).Append(')');
+                          .Append(e.Violations).Append('/').Append(e.Config.violationsForLockout).Append(")\n");
+                        // The single biggest difference, in plain language, so the wearer
+                        // can see what gave them away rather than just a falling number.
+                        sb.Append("<color=#ffc04d>")
+                          .Append(TopReasonText(e))
+                          .Append("</color>");
                         break;
                     case BiometricState.LockedOut:
                         locked = _mfa == null || _mfa.CurrentStage != MFAStage.Passed;
@@ -116,6 +159,33 @@ namespace BoardroomXR.UI
 
             _text.text = sb.ToString();
             if (_tint != null && _tint.activeSelf != locked) _tint.SetActive(locked);
+
+            // Pulsing red vignette while locked out, so the revoke is impossible to miss
+            // even if the wearer is looking away from the doors or the SOC panel.
+            if (locked && _tintMat != null)
+            {
+                float a = 0.22f + 0.16f * Mathf.Sin(Time.unscaledTime * 6f);
+                _tintMat.color = new Color(0.85f, 0f, 0f, a);
+            }
+
+            if (_progressRoot != null)
+            {
+                if (_progressRoot.gameObject.activeSelf != enrolling) _progressRoot.gameObject.SetActive(enrolling);
+                if (enrolling && _progressFill != null)
+                    _progressFill.localScale = new Vector3(Mathf.Max(0.001f, e.EnrolProgress), 1f, 1f);
+            }
+        }
+
+        /// <summary>Largest deviation of the last scored window, phrased for a person.</summary>
+        private static string TopReasonText(ContinuousBiometricEngine e)
+        {
+            if (!e.HasScoredWindow || e.Template == null) return "Checking movement...";
+            var auth = ContinuousBiometricAuthenticator.Instance;
+            string whose = auth != null
+                ? BoardroomXR.Identity.BadgeDirectory.NameFor(auth.CurrentUserId)
+                : "the enrolled user";
+            string reason = FeatureExplainer.TopReason(e.LastFeatures, e.LastZ, e.Template, whose);
+            return string.IsNullOrEmpty(reason) ? "Overall movement pattern differs." : reason;
         }
 
         private static string StageTitle(MFAStage s) => s switch
@@ -131,6 +201,8 @@ namespace BoardroomXR.UI
         private void OnDestroy()
         {
             if (_tintMat != null) Destroy(_tintMat);
+            if (_progressTrackMat != null) Destroy(_progressTrackMat);
+            if (_progressFillMat != null) Destroy(_progressFillMat);
         }
     }
 }

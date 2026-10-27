@@ -94,7 +94,8 @@ namespace BoardroomXR.Auth
             // also guards this, but logging here makes the demo trace clearer.
             if (coordinator.CurrentStage == MFAStage.Pin ||
                 coordinator.CurrentStage == MFAStage.Gesture ||
-                coordinator.CurrentStage == MFAStage.Otp)
+                coordinator.CurrentStage == MFAStage.Otp ||
+                coordinator.CurrentStage == MFAStage.Passed) // already verified: walking through must not restart MFA
             {
                 if (verboseTriggerLogging)
                 {

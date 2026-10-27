@@ -32,6 +32,10 @@ namespace BoardroomXR.Auth
                  "to walk through the antechamber trigger. Handy when demoing seated or in-editor.")]
         public bool autoStartOnPlay = true;
 
+        [Tooltip("How many strokes a fresh signature enrolment collects. Strokes 2..N must " +
+                 "match stroke 1, so one odd re-draw cannot define the user's template.")]
+        [Range(1, 5)] public int gestureEnrolmentSamples = GestureAuthenticator.DefaultEnrolmentSamples;
+
         [Tooltip("DEBUG ONLY. If the user has no enrolled gesture, fall back to a synthetic " +
                  "straight-line template instead of running enrolment. This makes factor 2 pass " +
                  "for almost any straight-ish stroke, so it must stay OFF for a real demo or any " +
@@ -135,6 +139,7 @@ namespace BoardroomXR.Auth
 
             if (_timeoutRoutine != null) { StopCoroutine(_timeoutRoutine); _timeoutRoutine = null; }
             _gesture.CancelCapture();
+            _gesture.ResetEnrolmentProgress();
             _pin.Initialize(settings);
             CurrentStage = MFAStage.Idle;
 
@@ -187,18 +192,20 @@ namespace BoardroomXR.Auth
         private void EnterGestureStage()
         {
             string userId = _identity != null ? _identity.ClaimedUserIdString : "LOCAL";
-            var template = GestureTemplateStore.Load(userId);
+            var samples = GestureTemplateStore.LoadSamples(userId);
 
             // Factor 2 used to never be initialised here - GestureAuthenticator._settings
             // stayed null and NullRef'd the moment a captured gesture was scored.
             bool usingTestTemplate = false;
-            if (template == null && useTestGestureTemplateFallback)
+            if (samples == null && useTestGestureTemplateFallback)
             {
-                template = BuildTestGestureTemplate();
+                samples = new List<List<Vector3>> { BuildTestGestureTemplate() };
                 usingTestTemplate = true;
             }
 
-            _gesture.Initialize(settings, template);
+            _gesture.RequiredEnrolmentSamples = gestureEnrolmentSamples;
+            _gesture.Initialize(settings, samples);
+            var template = samples != null && samples.Count > 0 ? samples[0] : null;
 
             if (usingTestTemplate)
             {
@@ -210,13 +217,13 @@ namespace BoardroomXR.Auth
             }
             else if (template == null)
             {
-                Log($"No enrolled gesture for {userId}. First stroke will be recorded as the enrolment template.");
+                Log($"No enrolled gesture for {userId}. Enrolling from {gestureEnrolmentSamples} strokes.");
                 SetStage(MFAStage.Gesture,
-                    "No gesture enrolled. Hold the trigger and draw your signature to enrol.");
+                    $"Draw your signature ({1}/{gestureEnrolmentSamples}) - hold the trigger while drawing.");
             }
             else
             {
-                Log($"Loaded enrolled gesture template for {userId} ({template.Count} points).");
+                Log($"Loaded enrolled gesture template for {userId} ({samples.Count} stroke(s), {template.Count} points in the first).");
                 SetStage(MFAStage.Gesture, "Hold the trigger and draw your signature.");
             }
 
@@ -245,13 +252,38 @@ namespace BoardroomXR.Auth
             };
         }
 
-        /// <summary>Called by GestureCaptureDriver once a stroke has been stored as the template.</summary>
+        /// <summary>Called by GestureCaptureDriver once all enrolment strokes have been stored.</summary>
         public void NotifyGestureEnrolled(int pointCount)
         {
-            Log($"Gesture ENROLLED from a live stroke ({pointCount} points). Draw it again to authenticate.");
-            OnStatusMessage?.Invoke("Gesture enrolled. Now draw it again to authenticate.");
+            int strokes = _gesture != null ? _gesture.EnrolledSamples.Count : 1;
+            Log($"Gesture ENROLLED from {strokes} live stroke(s) ({pointCount} points in the last). Draw it again to authenticate.");
+            BioEventLog.Emit("gesture_enrol", CurrentUserId, $"strokes={strokes} points={pointCount}");
+            OnStatusMessage?.Invoke($"Signature enrolled from {strokes} strokes. Now draw it once more to log in.");
             _gesture.BeginCapture();
         }
+
+        /// <summary>
+        /// Called by GestureCaptureDriver after each accepted enrolment stroke, so the
+        /// HUD can say which stroke the user is on.
+        /// </summary>
+        public void NotifyGestureEnrolmentProgress(int captured, int required)
+        {
+            Log($"Gesture enrolment stroke {captured}/{required} accepted.");
+            OnStatusMessage?.Invoke($"Draw your signature ({Mathf.Min(captured + 1, required)}/{required}) - same shape again.");
+        }
+
+        /// <summary>Called when an enrolment stroke did not match the first one and enrolment restarted.</summary>
+        public void NotifyGestureEnrolmentRestarted(float consistency)
+        {
+            Log($"Gesture enrolment restarted: stroke matched the first one only {consistency:F2} " +
+                $"(need >={GestureAuthenticator.EnrolmentConsistencyThreshold:F2}).");
+            BioEventLog.Emit("gesture_enrol_restart", CurrentUserId, $"consistency={consistency:F2}");
+            OnStatusMessage?.Invoke($"That was a different shape ({consistency:F2}). Starting again - " +
+                                    $"draw your signature (1/{gestureEnrolmentSamples}).");
+        }
+
+        /// <summary>Identity this rig currently claims, for log lines.</summary>
+        public string CurrentUserId => _identity != null ? _identity.ClaimedUserIdString : "LOCAL";
 
         private void HandleGestureScored(float score)
         {
@@ -261,6 +293,7 @@ namespace BoardroomXR.Auth
             {
                 float required = settings != null ? settings.gestureMatchThreshold : 1f;
                 Log($"Factor 2 (Gesture) failed locally: score={score:F3}, required>={required:F3}.");
+                BioEventLog.Emit("gesture_fail", CurrentUserId, $"score={score:F3} required={required:F3}");
                 OnStatusMessage?.Invoke($"Gesture did not match ({score:F2} of {required:F2}). Draw again.");
                 _gesture.BeginCapture(); // let the user retry within the session timeout
                 return;
@@ -279,6 +312,8 @@ namespace BoardroomXR.Auth
                 if (ok)
                 {
                     Log($"Factor 2 (Gesture) passed, score={score:F3}.");
+                    BioEventLog.Emit("gesture_pass", CurrentUserId,
+                        $"score={score:F3} matchedSample={_gesture.LastMatchedSampleIndex}");
                     SetStage(MFAStage.Otp,
                         $"Read the {OtpDigits}-digit code on your token and enter it on the keypad.");
                 }
@@ -329,6 +364,7 @@ namespace BoardroomXR.Auth
             float elapsed = Time.realtimeSinceStartup - _sessionStartTime;
             SetStage(MFAStage.Passed, "Verified. Boardroom content unlocked.");
             Log($"MFA PASSED in {elapsed:F1}s.");
+            BioEventLog.Emit("mfa_pass", CurrentUserId, $"all three factors in {elapsed:F1}s");
             if (_timeoutRoutine != null) { StopCoroutine(_timeoutRoutine); _timeoutRoutine = null; }
         }
 

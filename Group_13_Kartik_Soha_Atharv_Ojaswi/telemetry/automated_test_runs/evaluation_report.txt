@@ -1,9 +1,18 @@
 Automated biometric evaluation, 15 scripted test runs (R01-R15), seed 20261019
-Window 3.0 s, hop 0.5 s, enrol 60 s, threshold 0.25, lockout after 4 windows
+Window 3.0 s, hop 0.5 s, enrol 60 s
+Default operating point: Balanced (0.15, k=6)
 Genuine windows: 1275, impostor windows: 525
-Window-level EER: 0.39% at threshold 0.418
-At operating threshold 0.25: FAR 13.33%, FRR 0.00% (single window, before smoothing)
-Handovers detected and locked out: 15/15
+Window-level EER: 0.43% at threshold 0.490  (a property of the scores, not of the preset)
+At the default threshold 0.15: FAR 23.24%, FRR 0.00% (single window, before smoothing)
+Handovers detected and locked out: 13/15
 False lockouts during genuine use: 0/15
-Lockout latency after handover: 2.97 s mean, 0.18 s SD, max 3.40 s
-Generated 2026-10-19 19:28 by BiometricEvaluationRunner.
+Lockout latency after handover: 5.40 s mean, 2.42 s SD, max 13.40 s
+
+Operating points (same 15 runs, same motion, only threshold and k differ):
+  preset    thr    k   false lockouts   detected   mean latency
+  Strict    0.25   4       0/15          15/15      2.97 s
+  Balanced  0.15   6       0/15          13/15      5.40 s
+  Relaxed   0.10   8       0/15          10/15      6.10 s
+
+These are automated system test runs with scripted motion, not human participants.
+Generated 2026-10-26 21:26 by BiometricEvaluationRunner.

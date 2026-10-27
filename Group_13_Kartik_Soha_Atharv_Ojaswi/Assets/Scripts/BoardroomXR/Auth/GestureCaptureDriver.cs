@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using BoardroomXR.Identity;
@@ -171,23 +172,55 @@ namespace BoardroomXR.Auth
 
             if (!gestureAuthenticator.IsEnrolled)
             {
-                var template = gestureAuthenticator.EnrollFromLastCapture();
-                if (template == null)
-                {
-                    Log("Enrolment failed: stroke too short. Draw again.");
-                    gestureAuthenticator.BeginCapture();
-                    return;
-                }
-
-                bool saved = GestureTemplateStore.Save(userId, template);
-                Log($"Gesture enrolment captured for {userId}: {template.Count} points, {duration:F2}s, " +
-                    $"persisted={saved}.");
-                coordinator.NotifyGestureEnrolled(template.Count);
+                HandleEnrolmentStroke(userId, duration, points);
                 return;
             }
 
             Log($"Gesture stroke submitted: {points} points over {duration:F2}s. Scoring against enrolled template.");
             gestureAuthenticator.EndCaptureAndScore();
+        }
+
+        /// <summary>
+        /// Multi-sample enrolment: collect N strokes of the same shape. Strokes after
+        /// the first are checked against it, so an inconsistent enrolment is reported
+        /// and restarted instead of being silently stored.
+        /// </summary>
+        private void HandleEnrolmentStroke(string userId, float duration, int points)
+        {
+            int required = Mathf.Max(1, gestureAuthenticator.RequiredEnrolmentSamples);
+            var result = gestureAuthenticator.SubmitEnrolmentStroke();
+
+            switch (result)
+            {
+                case GestureEnrolmentResult.TooShort:
+                    Log("Enrolment failed: stroke too short. Draw again.");
+                    gestureAuthenticator.BeginCapture();
+                    return;
+
+                case GestureEnrolmentResult.Rejected:
+                    Log($"Enrolment stroke rejected for {userId}: only {gestureAuthenticator.LastEnrolmentConsistency:F2} " +
+                        $"similar to the first stroke. Enrolment restarted.");
+                    coordinator.NotifyGestureEnrolmentRestarted(gestureAuthenticator.LastEnrolmentConsistency);
+                    gestureAuthenticator.BeginCapture();
+                    return;
+
+                case GestureEnrolmentResult.NeedMore:
+                    Log($"Enrolment stroke {gestureAuthenticator.PendingSampleCount}/{required} accepted for {userId}: " +
+                        $"{points} points, {duration:F2}s" +
+                        (float.IsNaN(gestureAuthenticator.LastEnrolmentConsistency)
+                            ? "." : $", match to first stroke {gestureAuthenticator.LastEnrolmentConsistency:F2}."));
+                    coordinator.NotifyGestureEnrolmentProgress(gestureAuthenticator.PendingSampleCount, required);
+                    gestureAuthenticator.BeginCapture();
+                    return;
+
+                default: // Complete
+                    var samples = new List<List<Vector3>>(gestureAuthenticator.EnrolledSamples);
+                    bool saved = GestureTemplateStore.SaveSamples(userId, samples);
+                    Log($"Gesture enrolment captured for {userId}: {samples.Count} strokes " +
+                        $"({string.Join("/", samples.ConvertAll(s => s.Count.ToString()))} points), persisted={saved}.");
+                    coordinator.NotifyGestureEnrolled(points);
+                    return;
+            }
         }
 
         private void AbortStroke(string reason)

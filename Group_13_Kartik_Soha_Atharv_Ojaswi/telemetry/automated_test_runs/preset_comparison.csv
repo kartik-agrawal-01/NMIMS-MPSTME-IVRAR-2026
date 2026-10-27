@@ -1,0 +1,4 @@
+preset,threshold,k,false_lockouts_of_15,handovers_detected_of_15,mean_latency_s,sd_latency_s,max_latency_s
+Strict,0.2500,4,0,15,2.9667,0.1759,3.4000
+Balanced,0.1500,6,0,13,5.4000,2.4152,13.4000
+Relaxed,0.1000,8,0,10,6.1000,0.2582,6.4000

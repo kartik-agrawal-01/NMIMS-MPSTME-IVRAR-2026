@@ -24,7 +24,25 @@ namespace BoardroomXR.Biometrics
         public float[] mean = new float[KinematicFeatures.Count];
         public float[] sd = new float[KinematicFeatures.Count];
 
+        /// <summary>
+        /// The spread floor each feature had at enrolment. Adaptation may move a
+        /// feature's mean but must never push its sd below this, otherwise a slowly
+        /// drifting template would tighten itself into rejecting its own owner.
+        /// Absent in templates written before adaptation existed; recomputed on load.
+        /// </summary>
+        public float[] sdFloor = new float[KinematicFeatures.Count];
+
+        /// <summary>How many windows have been folded into this template since enrolment.</summary>
+        public int adaptationCount;
+        public string adaptedUtc;
+
         public const float ZClamp = 6f;
+
+        /// <summary>Raw score at or above which a window is trusted enough to adapt from.</summary>
+        public const float AdaptMinRawScore = 0.6f;
+
+        /// <summary>Only features this close to the template take part in adaptation.</summary>
+        public const float AdaptMaxAbsZ = 2f;
 
         // Smallest spread each feature may have, in its own units (see KinematicFeatures.Names).
         private static readonly float[] AbsFloor =
@@ -64,8 +82,50 @@ namespace BoardroomXR.Biometrics
                 float floor = Mathf.Max(AbsFloor[i], 0.02f * Mathf.Abs((float)m));
                 t.mean[i] = (float)m;
                 t.sd[i] = Mathf.Max((float)s, floor);
+                t.sdFloor[i] = floor;
             }
             return t;
+        }
+
+        /// <summary>
+        /// Slow drift handling. Folds one trusted live window into the template with a
+        /// small EMA on the mean, and only for features that are already close to it
+        /// (|z| &lt; <see cref="AdaptMaxAbsZ"/>). A feature that is far out is exactly the
+        /// evidence an impostor would need to launder, so it is never adapted; the
+        /// caller additionally refuses to adapt unless the state is Verified and the
+        /// raw score clears <see cref="AdaptMinRawScore"/>.
+        /// Returns the number of features that moved.
+        /// </summary>
+        public int Adapt(float[] f, float[] z, float alpha)
+        {
+            if (f == null || z == null) return 0;
+            int k = KinematicFeatures.Count;
+            int moved = 0;
+            for (int i = 0; i < k; i++)
+            {
+                if (Mathf.Abs(z[i]) >= AdaptMaxAbsZ) continue;
+                mean[i] += alpha * (f[i] - mean[i]);
+                // The relative part of the floor follows the mean; never let the
+                // spread end up tighter than the enrolment floor.
+                float floor = Mathf.Max(sdFloor[i], 0.02f * Mathf.Abs(mean[i]));
+                if (sd[i] < floor) sd[i] = floor;
+                moved++;
+            }
+            if (moved > 0)
+            {
+                adaptationCount++;
+                adaptedUtc = DateTime.UtcNow.ToString("o");
+            }
+            return moved;
+        }
+
+        /// <summary>Rebuilds a missing spread floor (templates written before adaptation existed).</summary>
+        public void EnsureSdFloor()
+        {
+            int k = KinematicFeatures.Count;
+            if (sdFloor == null || sdFloor.Length != k) sdFloor = new float[k];
+            for (int i = 0; i < k; i++)
+                if (sdFloor[i] <= 0f) sdFloor[i] = Mathf.Max(AbsFloor[i], 0.02f * Mathf.Abs(mean[i]));
         }
 
         public float Score(float[] f, float[] zOut = null)
@@ -106,6 +166,7 @@ namespace BoardroomXR.Biometrics
             {
                 var t = JsonUtility.FromJson<BiometricTemplate>(File.ReadAllText(p));
                 if (t?.mean == null || t.mean.Length != KinematicFeatures.Count) return null;
+                t.EnsureSdFloor();
                 return t;
             }
             catch { return null; }

@@ -43,23 +43,110 @@ namespace BoardroomXR.EditorTools
             string dir = Path.Combine(Path.GetDirectoryName(Application.dataPath), "Tools", "biometric_test_runs");
             string report = Run(dir);
             Debug.Log(report);
-            EditorUtility.DisplayDialog("Biometric evaluation complete", report, "OK");
+            if (!Application.isBatchMode)
+                EditorUtility.DisplayDialog("Biometric evaluation complete", report, "OK");
         }
 
         public static string Run(string outDir)
         {
             Directory.CreateDirectory(outDir);
-            var rng = new System.Random(Seed);
-            var people = Enumerable.Range(0, Runs).Select(_ => RandomProfile(rng)).ToList();
 
-            var summary = new StringBuilder("run,enrol_windows,genuine_windows,genuine_mean_score,false_lockout_during_genuine," +
-                                            "impostor_profile,impostor_windows,impostor_mean_score,impostor_locked_out,lockout_latency_s\n");
-            var windows = new StringBuilder("run,phase,t,raw_score\n");
-            var allGen = new List<float>();
-            var allImp = new List<float>();
-            var latencies = new List<float>();
-            int falseLockouts = 0, detected = 0;
-            var cfg = new BiometricConfig();
+            // Profiles come from their own generator, so the same 15 people are used for
+            // every preset and the comparison below is apples to apples.
+            var profileRng = new System.Random(Seed);
+            var people = Enumerable.Range(0, Runs).Select(_ => RandomProfile(profileRng)).ToList();
+
+            var presets = new[] { BiometricPreset.Strict, BiometricPreset.Balanced, BiometricPreset.Relaxed };
+            var comparison = new StringBuilder("preset,threshold,k,false_lockouts_of_15,handovers_detected_of_15," +
+                                               "mean_latency_s,sd_latency_s,max_latency_s\n");
+            var results = new Dictionary<BiometricPreset, PresetResult>();
+
+            foreach (var preset in presets)
+            {
+                var cfg = new BiometricConfig();
+                cfg.ApplyPreset(preset);
+                var result = RunAllRuns(people, cfg, preset == DefaultPreset);
+                results[preset] = result;
+
+                comparison.AppendLine(string.Join(",", preset.ToString(), F(cfg.matchThreshold),
+                    cfg.violationsForLockout.ToString(), result.falseLockouts.ToString(), result.detected.ToString(),
+                    result.latencies.Count > 0 ? F(result.latencies.Average()) : "",
+                    result.latencies.Count > 1 ? F(StdDev(result.latencies)) : "",
+                    result.latencies.Count > 0 ? F(result.latencies.Max()) : ""));
+            }
+
+            var main = results[DefaultPreset];
+            var mainCfg = new BiometricConfig();
+            mainCfg.ApplyPreset(DefaultPreset);
+
+            (float eer, float thr) = ComputeEer(main.genuineScores, main.impostorScores);
+            float far = main.impostorScores.Count(x => x >= mainCfg.matchThreshold) / (float)Math.Max(1, main.impostorScores.Count);
+            float frr = main.genuineScores.Count(x => x < mainCfg.matchThreshold) / (float)Math.Max(1, main.genuineScores.Count);
+
+            File.WriteAllText(Path.Combine(outDir, "runs_summary.csv"), main.summary.ToString());
+            File.WriteAllText(Path.Combine(outDir, "window_scores.csv"), main.windows.ToString());
+            File.WriteAllText(Path.Combine(outDir, "preset_comparison.csv"), comparison.ToString());
+
+            string lat = main.latencies.Count > 0
+                ? $"{main.latencies.Average():F2} s mean, {StdDev(main.latencies):F2} s SD, max {main.latencies.Max():F2} s"
+                : "n/a";
+
+            var report = new StringBuilder();
+            report.AppendLine($"Automated biometric evaluation, {Runs} scripted test runs (R01-R{Runs:00}), seed {Seed}");
+            report.AppendLine($"Window {mainCfg.windowSeconds:F1} s, hop {mainCfg.hopSeconds:F1} s, enrol {EnrolS:F0} s");
+            report.AppendLine($"Default operating point: {mainCfg.PresetLabel}");
+            report.AppendLine($"Genuine windows: {main.genuineScores.Count}, impostor windows: {main.impostorScores.Count}");
+            report.AppendLine($"Window-level EER: {eer * 100f:F2}% at threshold {thr:F3}  (a property of the scores, not of the preset)");
+            report.AppendLine($"At the default threshold {mainCfg.matchThreshold:F2}: FAR {far * 100f:F2}%, FRR {frr * 100f:F2}% " +
+                              "(single window, before smoothing)");
+            report.AppendLine($"Handovers detected and locked out: {main.detected}/{Runs}");
+            report.AppendLine($"False lockouts during genuine use: {main.falseLockouts}/{Runs}");
+            report.AppendLine($"Lockout latency after handover: {lat}");
+            report.AppendLine();
+            report.AppendLine("Operating points (same 15 runs, same motion, only threshold and k differ):");
+            report.AppendLine("  preset    thr    k   false lockouts   detected   mean latency");
+            foreach (var preset in presets)
+            {
+                var c = new BiometricConfig();
+                c.ApplyPreset(preset);
+                var rr = results[preset];
+                string ml = rr.latencies.Count > 0 ? $"{rr.latencies.Average():F2} s" : "n/a";
+                report.AppendLine($"  {preset,-9} {c.matchThreshold,4:F2} {c.violationsForLockout,3}      " +
+                                  $"{rr.falseLockouts,2}/{Runs}          {rr.detected,2}/{Runs}      {ml}");
+            }
+            report.AppendLine();
+            report.AppendLine("These are automated system test runs with scripted motion, not human participants.");
+            report.AppendLine($"Generated {DateTime.Now:yyyy-MM-dd HH:mm} by BiometricEvaluationRunner.");
+
+            string text = report.ToString();
+            File.WriteAllText(Path.Combine(outDir, "evaluation_report.txt"), text);
+            return text;
+        }
+
+        private const BiometricPreset DefaultPreset = BiometricPreset.Balanced;
+
+        private class PresetResult
+        {
+            public int falseLockouts, detected;
+            public readonly List<float> latencies = new List<float>();
+            public readonly List<float> genuineScores = new List<float>();
+            public readonly List<float> impostorScores = new List<float>();
+            public readonly StringBuilder summary = new StringBuilder();
+            public readonly StringBuilder windows = new StringBuilder();
+        }
+
+        /// <summary>
+        /// All 15 runs at one operating point. Motion is regenerated from a fresh seeded
+        /// RNG each time this is called, so every preset sees identical movement and the
+        /// only thing that changes between passes is the decision rule.
+        /// </summary>
+        private static PresetResult RunAllRuns(List<Profile> people, BiometricConfig cfg, bool collectDetail)
+        {
+            var rng = new System.Random(Seed + 1);
+            var res = new PresetResult();
+            res.summary.Append("run,enrol_windows,genuine_windows,genuine_mean_score,false_lockout_during_genuine," +
+                               "impostor_profile,impostor_windows,impostor_mean_score,impostor_locked_out,lockout_latency_s\n");
+            res.windows.Append("run,phase,t,raw_score\n");
 
             for (int r = 0; r < Runs; r++)
             {
@@ -85,46 +172,24 @@ namespace BoardroomXR.EditorTools
                 float handover = EnrolS + GenuineS;
                 bool falseLock = lockT >= 0f && lockT < handover;
                 bool impLock = lockT >= handover;
-                if (falseLock) falseLockouts++;
-                if (impLock) { detected++; latencies.Add(lockT - handover); }
+                if (falseLock) res.falseLockouts++;
+                if (impLock) { res.detected++; res.latencies.Add(lockT - handover); }
 
-                // --- per-window scores against the template (for EER), without lockout cut-off ---
+                // --- per-window scores against the template (for EER), without the lockout cut-off ---
                 var tpl = engine.Template;
                 var g = ScoreWindows(tpl, genSamples, cfg);
                 var im = ScoreWindows(tpl, impSamples, cfg);
-                allGen.AddRange(g.Select(x => x.score));
-                allImp.AddRange(im.Select(x => x.score));
-                foreach (var w in g) windows.AppendLine($"{id},genuine,{F(w.t)},{F(w.score)}");
-                foreach (var w in im) windows.AppendLine($"{id},impostor,{F(w.t)},{F(w.score)}");
+                res.genuineScores.AddRange(g.Select(x => x.score));
+                res.impostorScores.AddRange(im.Select(x => x.score));
 
-                summary.AppendLine(string.Join(",", id, tpl != null ? tpl.windowCount : 0, g.Count, F(Mean(g.Select(x => x.score))),
-                    falseLock ? "Y" : "N", $"R{impIdx + 1:00}", im.Count, F(Mean(im.Select(x => x.score))),
-                    impLock ? "Y" : "N", impLock ? F(lockT - handover) : ""));
+                if (!collectDetail) continue;
+                foreach (var w in g) res.windows.AppendLine($"{id},genuine,{F(w.t)},{F(w.score)}");
+                foreach (var w in im) res.windows.AppendLine($"{id},impostor,{F(w.t)},{F(w.score)}");
+                res.summary.AppendLine(string.Join(",", id, tpl != null ? tpl.windowCount : 0, g.Count,
+                    F(Mean(g.Select(x => x.score))), falseLock ? "Y" : "N", $"R{impIdx + 1:00}", im.Count,
+                    F(Mean(im.Select(x => x.score))), impLock ? "Y" : "N", impLock ? F(lockT - handover) : ""));
             }
-
-            (float eer, float thr) = ComputeEer(allGen, allImp);
-            float far = allImp.Count(x => x >= cfg.matchThreshold) / (float)Math.Max(1, allImp.Count);
-            float frr = allGen.Count(x => x < cfg.matchThreshold) / (float)Math.Max(1, allGen.Count);
-
-            File.WriteAllText(Path.Combine(outDir, "runs_summary.csv"), summary.ToString());
-            File.WriteAllText(Path.Combine(outDir, "window_scores.csv"), windows.ToString());
-
-            string lat = latencies.Count > 0
-                ? $"{latencies.Average():F2} s mean, {StdDev(latencies):F2} s SD, max {latencies.Max():F2} s"
-                : "n/a";
-            string report =
-                $"Automated biometric evaluation, {Runs} scripted test runs (R01-R{Runs:00}), seed {Seed}\n" +
-                $"Window {cfg.windowSeconds:F1} s, hop {cfg.hopSeconds:F1} s, enrol {EnrolS:F0} s, threshold {cfg.matchThreshold:F2}, " +
-                $"lockout after {cfg.violationsForLockout} windows\n" +
-                $"Genuine windows: {allGen.Count}, impostor windows: {allImp.Count}\n" +
-                $"Window-level EER: {eer * 100f:F2}% at threshold {thr:F3}\n" +
-                $"At operating threshold {cfg.matchThreshold:F2}: FAR {far * 100f:F2}%, FRR {frr * 100f:F2}% (single window, before smoothing)\n" +
-                $"Handovers detected and locked out: {detected}/{Runs}\n" +
-                $"False lockouts during genuine use: {falseLockouts}/{Runs}\n" +
-                $"Lockout latency after handover: {lat}\n" +
-                $"Generated {DateTime.Now:yyyy-MM-dd HH:mm} by BiometricEvaluationRunner.";
-            File.WriteAllText(Path.Combine(outDir, "evaluation_report.txt"), report);
-            return report;
+            return res;
         }
 
         // ---------------- motion generation ----------------

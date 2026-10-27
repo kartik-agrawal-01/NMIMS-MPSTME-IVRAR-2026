@@ -90,7 +90,11 @@ namespace BoardroomXR.Tests
             var auth = ContinuousBiometricAuthenticator.Instance;
             Assert.IsNotNull(auth, "ContinuousBiometricAuthenticator did not bootstrap on scene load.");
             Assert.IsNotNull(Object.FindAnyObjectByType<BoardroomXR.UI.BiometricStatusHUD>(), "Status HUD did not bootstrap.");
-            auth.config.enrolSeconds = 10f;  // shortened for the test; 60 s on the headset
+            auth.config.enrolSeconds = 10f;  // shortened for the test; 30/60 s on the headset
+            // Pin the operating point this test's timing assertions were written against,
+            // so neither the persisted presenter choice nor a change of default moves it.
+            // The Balanced default is covered by ExpoScenarioPlayModeTests.
+            auth.config.ApplyPreset(BiometricPreset.Strict);
 
             _rig = new GameObject("TestRig");
             var mover = _rig.AddComponent<ScriptedMover>();

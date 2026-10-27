@@ -30,6 +30,12 @@ namespace BoardroomXR.Identity
         [Tooltip("Head transform. Left empty, the main XR camera is used, which is the actual head pose on a headset.")]
         public Transform headTransform;
 
+        [Tooltip("When true (default since v4) this legacy speed-outlier detector only logs and never revokes. " +
+                 "On-device trials showed its 1.8 s baseline, built while the user stood still right after login, " +
+                 "flagged ordinary head movement as anomalous and revoked genuine users. Identity is now enforced by " +
+                 "ContinuousBiometricAuthenticator.")]
+        public bool supersededByContinuousBiometrics = true;
+
         [Header("Strike policy")]
         [Tooltip("Strikes required before verification is revoked.")]
         public int strikesBeforeRevoke = 3;
@@ -153,6 +159,15 @@ namespace BoardroomXR.Identity
 
             Log($"ANOMALY {_identity.ClaimedUserIdString}: speed={speed:F2}m/s mean={mean:F2} sd={stdDev:F2} " +
                 $"z={z:F2} (threshold {settings.behaviouralAnomalyStdDevThreshold:F2}) strikes={strikes}/{strikesBeforeRevoke}");
+
+            if (strikes >= strikesBeforeRevoke && supersededByContinuousBiometrics)
+            {
+                Log($"SpoofDetector would revoke {_identity.ClaimedUserIdString} ({strikes} strikes) but is superseded " +
+                    "by continuous biometric authentication; strike count reset, no revoke.");
+                _identity.AnomalyStrikes.Value = 0;
+                ResetBaseline();
+                return;
+            }
 
             if (strikes >= strikesBeforeRevoke)
             {
